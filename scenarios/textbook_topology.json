@@ -1,0 +1,16 @@
+{
+  "name": "Kurose-Ross 6-Node Classic Topology",
+  "routers": ["u", "v", "w", "x", "y", "z"],
+  "links": [
+    {"u": "u", "v": "v", "cost": 2},
+    {"u": "u", "v": "w", "cost": 5},
+    {"u": "u", "v": "x", "cost": 1},
+    {"u": "v", "v": "w", "cost": 3},
+    {"u": "v", "v": "y", "cost": 2},
+    {"u": "w", "v": "x", "cost": 3},
+    {"u": "w", "v": "y", "cost": 1},
+    {"u": "w", "v": "z", "cost": 5},
+    {"u": "x", "v": "y", "cost": 1},
+    {"u": "y", "v": "z", "cost": 2}
+  ]
+}

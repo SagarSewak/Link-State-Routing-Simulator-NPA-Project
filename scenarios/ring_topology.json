@@ -1,0 +1,12 @@
+{
+  "name": "5-Node Ring Topology",
+  "routers": ["A", "B", "C", "D", "E"],
+  "links": [
+    {"u": "A", "v": "B", "cost": 3},
+    {"u": "B", "v": "C", "cost": 4},
+    {"u": "C", "v": "D", "cost": 2},
+    {"u": "D", "v": "E", "cost": 5},
+    {"u": "E", "v": "A", "cost": 6},
+    {"u": "A", "v": "C", "cost": 8}
+  ]
+}
