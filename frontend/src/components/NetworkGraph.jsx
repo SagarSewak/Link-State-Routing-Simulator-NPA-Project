@@ -7,7 +7,7 @@ import {
   RotateCcw,
   Sparkles
 } from 'lucide-react';
-import { PRESET_SCENARIOS } from '../engine/linkStateEngine';
+import { PRESET_SCENARIOS, resolveNodePositions } from '../engine/linkStateEngine';
 
 export function NetworkGraph({
   network,
@@ -22,9 +22,9 @@ export function NetworkGraph({
   const linksList = network?.links || [];
   const currentScenarioKey = network?.scenario_name || 'textbook_topology.json';
 
-  // Static preset positions - fixed and crisp per topology
+  // Robust position resolver - guaranteed non-null coordinates for all nodes in any topology
+  const positions = resolveNodePositions(network, currentScenarioKey);
   const presetData = PRESET_SCENARIOS[currentScenarioKey] || PRESET_SCENARIOS['textbook_topology.json'];
-  const positions = presetData.positions || network?.positions || {};
 
   // Check if a link (u, v) is in the highlighted shortest path
   const isLinkInPath = (u, v) => {
@@ -37,6 +37,13 @@ export function NetworkGraph({
       }
     }
     return false;
+  };
+
+  // Check if a link (u, v) is actively being traversed by animating packet
+  const isLinkActiveHop = (u, v) => {
+    if (!animatingPacket || !animatingPacket.fromNode || !animatingPacket.toNode) return false;
+    const { fromNode, toNode } = animatingPacket;
+    return (fromNode === u && toNode === v) || (fromNode === v && toNode === u);
   };
 
   // Node color palette based on router ID hash
@@ -141,11 +148,12 @@ export function NetworkGraph({
 
               const isFailed = link.status === 'DOWN';
               const isInPath = isLinkInPath(link.u, link.v);
+              const isActiveHop = isLinkActiveHop(link.u, link.v);
               const midX = Math.round((uPos.x + vPos.x) / 2);
               const midY = Math.round((uPos.y + vPos.y) / 2);
 
               return (
-                <g key={`link-${link.u}-${link.v}`} className={`link-group ${isFailed ? 'failed' : ''} ${isInPath ? 'in-path' : ''}`}>
+                <g key={`link-${link.u}-${link.v}`} className={`link-group ${isFailed ? 'failed' : ''} ${isInPath ? 'in-path' : ''} ${isActiveHop ? 'active-hop' : ''}`}>
                   {/* Under-glow line */}
                   <line
                     x1={uPos.x}
@@ -153,10 +161,10 @@ export function NetworkGraph({
                     x2={vPos.x}
                     y2={vPos.y}
                     className="link-underglow"
-                    filter={isInPath ? 'url(#pathGlow)' : isFailed ? 'url(#failedGlow)' : undefined}
-                    stroke={isInPath ? '#10b981' : isFailed ? '#ef4444' : '#334155'}
-                    strokeWidth={isInPath ? 12 : isFailed ? 8 : 4}
-                    opacity={isInPath ? 0.6 : isFailed ? 0.4 : 0.2}
+                    filter={isActiveHop ? 'url(#pathGlow)' : isInPath ? 'url(#pathGlow)' : isFailed ? 'url(#failedGlow)' : undefined}
+                    stroke={isActiveHop ? '#38bdf8' : isInPath ? '#10b981' : isFailed ? '#ef4444' : '#334155'}
+                    strokeWidth={isActiveHop ? 14 : isInPath ? 12 : isFailed ? 8 : 4}
+                    opacity={isActiveHop ? 0.8 : isInPath ? 0.6 : isFailed ? 0.4 : 0.2}
                   />
 
                   {/* Main Line */}
@@ -165,10 +173,10 @@ export function NetworkGraph({
                     y1={uPos.y}
                     x2={vPos.x}
                     y2={vPos.y}
-                    className={`link-line ${isInPath ? 'path-active' : ''} ${isFailed ? 'severed-line' : ''}`}
-                    stroke={isInPath ? 'url(#pathGradient)' : isFailed ? '#ef4444' : '#475569'}
-                    strokeWidth={isInPath ? 4.5 : isFailed ? 2.5 : 2.5}
-                    strokeDasharray={isFailed ? '6,6' : isInPath ? '8,4' : 'none'}
+                    className={`link-line ${isActiveHop ? 'active-hop-line' : isInPath ? 'path-active' : ''} ${isFailed ? 'severed-line' : ''}`}
+                    stroke={isActiveHop ? '#38bdf8' : isInPath ? 'url(#pathGradient)' : isFailed ? '#ef4444' : '#475569'}
+                    strokeWidth={isActiveHop ? 5 : isInPath ? 4.5 : isFailed ? 2.5 : 2.5}
+                    strokeDasharray={isFailed ? '6,6' : isActiveHop ? '4,4' : isInPath ? '8,4' : 'none'}
                   />
 
                   {/* Midpoint Metric Badge - Static, Clean, No Hover Glitch */}
@@ -202,14 +210,28 @@ export function NetworkGraph({
           </g>
 
           {/* Animated Data Packet Traveling */}
-          {animatingPacket && (
+          {animatingPacket && typeof animatingPacket.x === 'number' && typeof animatingPacket.y === 'number' && !isNaN(animatingPacket.x) && !isNaN(animatingPacket.y) && (
             <g className="packet-anim-group" transform={`translate(${animatingPacket.x}, ${animatingPacket.y})`}>
-              <circle r="14" fill="#10b981" opacity="0.3" filter="url(#glow)">
-                <animate attributeName="r" values="10;22;10" dur="1.2s" repeatCount="indefinite" />
+              {/* Outer pulsing beacon aura */}
+              <circle
+                r="18"
+                fill={animatingPacket.status === 'failed' ? '#ef4444' : animatingPacket.status === 'delivered' ? '#10b981' : '#38bdf8'}
+                opacity="0.35"
+                filter="url(#glow)"
+              >
+                <animate attributeName="r" values="14;26;14" dur="0.9s" repeatCount="indefinite" />
               </circle>
-              <circle r="8" fill="#34d399" stroke="#ffffff" strokeWidth="2" filter="url(#glow)" />
-              <text x="0" y="3" textAnchor="middle" fill="#0f172a" fontSize="8" fontWeight="bold">
-                DATA
+              {/* Core glow */}
+              <circle
+                r="11"
+                fill={animatingPacket.status === 'failed' ? '#f43f5e' : animatingPacket.status === 'delivered' ? '#059669' : '#0284c7'}
+                stroke="#ffffff"
+                strokeWidth="2.5"
+                filter="url(#glow)"
+              />
+              {/* Label text */}
+              <text x="0" y="3.5" textAnchor="middle" fill="#ffffff" fontSize="7" fontWeight="800" pointerEvents="none">
+                {animatingPacket.label || (animatingPacket.status === 'failed' ? 'FAIL' : animatingPacket.status === 'delivered' ? 'ACK' : 'DATA')}
               </text>
             </g>
           )}

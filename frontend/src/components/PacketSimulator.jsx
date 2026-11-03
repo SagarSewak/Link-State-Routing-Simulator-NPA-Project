@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Send, 
   CheckCircle2, 
@@ -6,6 +6,7 @@ import {
   Clock, 
   Cpu, 
   ArrowRight,
+  ArrowLeftRight,
   ShieldAlert,
   Sparkles
 } from 'lucide-react';
@@ -14,13 +15,58 @@ export function PacketSimulator({
   routers = [],
   onSimulatePacket,
   lastPacketResult = null,
-  isSimulating = false
+  isSimulating = false,
+  selectedSrc = null,
+  selectedDst = null,
 }) {
   const routerIds = routers.map(r => typeof r === 'string' ? r : r.id).sort();
 
   const [src, setSrc] = useState(routerIds[0] || 'u');
   const [dst, setDst] = useState(routerIds[routerIds.length - 1] || 'z');
   const [payload, setPayload] = useState('Network Protocols Assignment Data');
+
+  // Synchronize src/dst whenever router list changes (e.g. scenario switch)
+  useEffect(() => {
+    if (!routerIds || routerIds.length === 0) return;
+
+    setSrc((prevSrc) => {
+      if (routerIds.includes(prevSrc)) return prevSrc;
+      return routerIds[0];
+    });
+
+    setDst((prevDst) => {
+      if (routerIds.includes(prevDst) && prevDst !== routerIds[0]) return prevDst;
+      return routerIds.length > 1 ? routerIds[routerIds.length - 1] : routerIds[0];
+    });
+  }, [routers.length, routerIds.join(',')]);
+
+  // Synchronize when external selection is triggered (e.g. from routing table)
+  useEffect(() => {
+    if (selectedSrc && routerIds.includes(selectedSrc)) setSrc(selectedSrc);
+    if (selectedDst && routerIds.includes(selectedDst)) setDst(selectedDst);
+  }, [selectedSrc, selectedDst]);
+
+  const handleSrcChange = (newSrc) => {
+    setSrc(newSrc);
+    if (newSrc === dst && routerIds.length > 1) {
+      const alternate = routerIds.find(id => id !== newSrc) || newSrc;
+      setDst(alternate);
+    }
+  };
+
+  const handleDstChange = (newDst) => {
+    setDst(newDst);
+    if (newDst === src && routerIds.length > 1) {
+      const alternate = routerIds.find(id => id !== newDst) || newDst;
+      setSrc(alternate);
+    }
+  };
+
+  const handleSwap = () => {
+    if (routerIds.length < 2) return;
+    setSrc(dst);
+    setDst(src);
+  };
 
   const handleSend = (e) => {
     e.preventDefault();
@@ -55,7 +101,7 @@ export function PacketSimulator({
             <select 
               className="form-select"
               value={src} 
-              onChange={(e) => setSrc(e.target.value)}
+              onChange={(e) => handleSrcChange(e.target.value)}
             >
               {routerIds.map(id => (
                 <option key={`src-${id}`} value={id}>Router [{id}]</option>
@@ -63,16 +109,21 @@ export function PacketSimulator({
             </select>
           </div>
 
-          <div className="hop-arrow-indicator">
-            <ArrowRight size={20} className="arrow-pulse" />
-          </div>
+          <button
+            type="button"
+            className="hop-arrow-indicator btn-swap-indicator"
+            title="Click to swap Source and Destination"
+            onClick={handleSwap}
+          >
+            <ArrowLeftRight size={18} className="arrow-pulse" />
+          </button>
 
           <div className="form-group">
             <label className="form-label">Destination Router</label>
             <select 
               className="form-select"
               value={dst} 
-              onChange={(e) => setDst(e.target.value)}
+              onChange={(e) => handleDstChange(e.target.value)}
             >
               {routerIds.map(id => (
                 <option key={`dst-${id}`} value={id}>Router [{id}]</option>

@@ -41,7 +41,7 @@ class ApiService {
         if (res.ok) {
           const data = await res.json();
           // Merge with engine positions
-          data.positions = this.engine.nodePositions;
+          data.positions = { ...this.engine.nodePositions, ...(data.positions || {}) };
           return { source: 'backend', data };
         }
       } catch (err) {

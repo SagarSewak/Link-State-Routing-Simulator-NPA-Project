@@ -893,6 +893,35 @@ body {
   color: var(--pink-bright);
 }
 
+.btn-swap-indicator {
+  background: rgba(236, 72, 153, 0.12);
+  border: 1px solid rgba(236, 72, 153, 0.3);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 2px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-swap-indicator:hover {
+  background: rgba(236, 72, 153, 0.28);
+  border-color: rgba(236, 72, 153, 0.6);
+  transform: scale(1.08);
+}
+
+.active-hop-line {
+  animation: activeHopDash 0.8s linear infinite;
+}
+
+@keyframes activeHopDash {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
 .btn-send-packet {
   display: inline-flex;
   align-items: center;

@@ -17,6 +17,7 @@ import {
 
 import { PROJECT_AUTHORS } from './config/authors';
 import { api } from './services/api';
+import { resolveNodePositions } from './engine/linkStateEngine';
 import { Navbar } from './components/Navbar';
 import { NetworkGraph } from './components/NetworkGraph';
 import { DijkstraVisualizer } from './components/DijkstraVisualizer';
@@ -42,9 +43,12 @@ export function App() {
   const [lastPacketResult, setLastPacketResult] = useState(null);
   const [animatingPacket, setAnimatingPacket] = useState(null);
   const [isSimulatingPacket, setIsSimulatingPacket] = useState(false);
+  const [selectedSimSrc, setSelectedSimSrc] = useState(null);
+  const [selectedSimDst, setSelectedSimDst] = useState(null);
   const [showAuthorsModal, setShowAuthorsModal] = useState(false);
   const [showTheoryModal, setShowTheoryModal] = useState(false);
   const [convergenceStats, setConvergenceStats] = useState(null);
+  const animIdRef = useRef(0);
 
   // Initialize
   useEffect(() => {
@@ -160,42 +164,104 @@ export function App() {
 
   // Simulate Packet Transmission
   const handleSimulatePacket = async (src, dst, payload) => {
+    setSelectedSimSrc(src);
+    setSelectedSimDst(dst);
     setIsSimulatingPacket(true);
+
+    const animId = ++animIdRef.current;
+
     const result = await api.simulatePacket(src, dst, payload);
+    if (animIdRef.current !== animId) return;
+
     setLastPacketResult(result);
     setHighlightPath(result.path_traversed || []);
 
-    // Animate packet along path nodes
-    if (result.path_traversed && result.path_traversed.length >= 2 && network?.positions) {
-      const path = result.path_traversed;
+    // Resolve node coordinates robustly for the active scenario & any dynamic routers
+    const positions = resolveNodePositions(network, currentScenario);
+    const path = result.path_traversed || [];
+
+    if (path.length >= 2) {
+      // Multiple hops: animate smoothly along each edge
       for (let i = 0; i < path.length - 1; i++) {
+        if (animIdRef.current !== animId) return;
+
         const fromNode = path[i];
         const toNode = path[i + 1];
-        const fromPos = network.positions[fromNode];
-        const toPos = network.positions[toNode];
+        const fromPos = positions[fromNode];
+        const toPos = positions[toNode];
+
         if (fromPos && toPos) {
-          // Micro steps
-          const steps = 15;
+          const steps = 18;
           for (let s = 0; s <= steps; s++) {
-            const frac = s / steps;
+            if (animIdRef.current !== animId) return;
+            const t = s / steps;
+            // Smooth easeInOut sine
+            const ease = -(Math.cos(Math.PI * t) - 1) / 2;
+
             setAnimatingPacket({
-              x: fromPos.x + (toPos.x - fromPos.x) * frac,
-              y: fromPos.y + (toPos.y - fromPos.y) * frac,
+              x: fromPos.x + (toPos.x - fromPos.x) * ease,
+              y: fromPos.y + (toPos.y - fromPos.y) * ease,
+              status: 'in-flight',
+              fromNode,
+              toNode,
+              label: 'DATA',
+              hopIndex: i + 1,
+              totalHops: path.length - 1,
             });
-            await new Promise((r) => setTimeout(r, 25));
+
+            await new Promise((r) => setTimeout(r, 20));
           }
         }
       }
-      setTimeout(() => setAnimatingPacket(null), 700);
+
+      if (animIdRef.current !== animId) return;
+
+      // Arrival at final node in path
+      const lastNode = path[path.length - 1];
+      const lastPos = positions[lastNode];
+
+      if (lastPos) {
+        setAnimatingPacket({
+          x: lastPos.x,
+          y: lastPos.y,
+          status: result.delivered ? 'delivered' : 'failed',
+          label: result.delivered ? 'ACK' : 'FAIL',
+          node: lastNode,
+        });
+
+        await new Promise((r) => setTimeout(r, 650));
+      }
+    } else if (path.length === 1) {
+      // Single node (e.g. source has no route to destination due to link severed)
+      const srcNode = path[0];
+      const srcPos = positions[srcNode];
+      if (srcPos) {
+        setAnimatingPacket({
+          x: srcPos.x,
+          y: srcPos.y,
+          status: 'failed',
+          label: 'BLOCKED',
+          node: srcNode,
+        });
+        await new Promise((r) => setTimeout(r, 700));
+      }
     }
 
-    setIsSimulatingPacket(false);
+    if (animIdRef.current === animId) {
+      setAnimatingPacket(null);
+      setIsSimulatingPacket(false);
+    }
   };
 
   // Quick simulate from routing table button
   const handleQuickSimulate = (src, dst) => {
     setActiveTab('topology');
-    handleSimulatePacket(src, dst, 'Quick Forward Test');
+    setSelectedSimSrc(src);
+    setSelectedSimDst(dst);
+    // Slight tick to ensure topology graph is rendered before packet animation starts
+    setTimeout(() => {
+      handleSimulatePacket(src, dst, 'Quick Forward Test');
+    }, 60);
   };
 
   const routersList = network?.routers || [];
@@ -339,6 +405,8 @@ export function App() {
                   onSimulatePacket={handleSimulatePacket}
                   lastPacketResult={lastPacketResult}
                   isSimulating={isSimulatingPacket}
+                  selectedSrc={selectedSimSrc}
+                  selectedDst={selectedSimDst}
                 />
 
                 <RoutingTables

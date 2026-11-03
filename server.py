@@ -37,6 +37,33 @@ current_scenario_name = "textbook_topology.json"
 
 SCENARIOS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scenarios")
 
+PRESET_POSITIONS = {
+    "textbook_topology.json": {
+        "u": {"x": 120, "y": 220},
+        "v": {"x": 300, "y": 90},
+        "w": {"x": 520, "y": 90},
+        "x": {"x": 300, "y": 350},
+        "y": {"x": 520, "y": 350},
+        "z": {"x": 700, "y": 220},
+    },
+    "mesh_topology.json": {
+        "R1": {"x": 100, "y": 220},
+        "R2": {"x": 260, "y": 110},
+        "R3": {"x": 260, "y": 330},
+        "R4": {"x": 440, "y": 110},
+        "R5": {"x": 440, "y": 330},
+        "R6": {"x": 620, "y": 220},
+        "R7": {"x": 740, "y": 220},
+    },
+    "ring_topology.json": {
+        "A": {"x": 400, "y": 80},
+        "B": {"x": 650, "y": 190},
+        "C": {"x": 550, "y": 380},
+        "D": {"x": 250, "y": 380},
+        "E": {"x": 150, "y": 190},
+    },
+}
+
 
 def init_default_network(scenario_file: str = "textbook_topology.json") -> Network:
     global active_network, current_scenario_name
@@ -96,11 +123,23 @@ def serialize_network(net: Network) -> Dict[str, Any]:
             "status": "UP"
         })
 
+    positions = dict(PRESET_POSITIONS.get(current_scenario_name, {}))
+    all_routers = sorted(net.routers.keys())
+    for idx, r_id in enumerate(all_routers):
+        if r_id not in positions:
+            import math
+            angle = (idx / max(len(all_routers), 1)) * 2 * math.pi - math.pi / 2
+            positions[r_id] = {
+                "x": round(420 + 180 * math.cos(angle)),
+                "y": round(240 + 150 * math.sin(angle)),
+            }
+
     return {
         "name": net.name,
         "scenario_name": current_scenario_name,
         "routers": routers_data,
         "links": links_data,
+        "positions": positions,
         "logs": net.event_logs[-50:]  # last 50 logs
     }
 

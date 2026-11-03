@@ -78,6 +78,32 @@ export const PRESET_SCENARIOS = {
   },
 };
 
+/**
+ * Robustly resolve node coordinates for any scenario, custom routers, and any network state.
+ * Guarantees every router has valid (x, y) coordinates for smooth, error-free animation.
+ */
+export function resolveNodePositions(network, scenarioKey) {
+  const scKey = scenarioKey || network?.scenario_name || 'textbook_topology.json';
+  const preset = PRESET_SCENARIOS[scKey] || PRESET_SCENARIOS['textbook_topology.json'] || {};
+  const presetPos = preset.positions || {};
+  const netPos = network?.positions || {};
+
+  const combined = { ...presetPos, ...netPos };
+
+  const routers = (network?.routers || []).map((r) => (typeof r === 'string' ? r : r.id));
+  routers.forEach((rId, idx) => {
+    if (!combined[rId] || typeof combined[rId].x !== 'number' || typeof combined[rId].y !== 'number') {
+      const angle = (idx / Math.max(routers.length, 1)) * 2 * Math.PI - Math.PI / 2;
+      combined[rId] = {
+        x: Math.round(420 + 180 * Math.cos(angle)),
+        y: Math.round(240 + 150 * Math.sin(angle)),
+      };
+    }
+  });
+
+  return combined;
+}
+
 export class LinkStateEngine {
   constructor(scenarioKey = "textbook_topology.json") {
     this.scenarioKey = scenarioKey;
