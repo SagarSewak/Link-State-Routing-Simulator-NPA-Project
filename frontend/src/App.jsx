@@ -176,76 +176,15 @@ export function App() {
     setLastPacketResult(result);
     setHighlightPath(result.path_traversed || []);
 
-    // Resolve node coordinates robustly for the active scenario & any dynamic routers
-    const positions = resolveNodePositions(network, currentScenario);
-    const path = result.path_traversed || [];
-
-    if (path.length >= 2) {
-      // Multiple hops: animate smoothly along each edge
-      for (let i = 0; i < path.length - 1; i++) {
-        if (animIdRef.current !== animId) return;
-
-        const fromNode = path[i];
-        const toNode = path[i + 1];
-        const fromPos = positions[fromNode];
-        const toPos = positions[toNode];
-
-        if (fromPos && toPos) {
-          const steps = 18;
-          for (let s = 0; s <= steps; s++) {
-            if (animIdRef.current !== animId) return;
-            const t = s / steps;
-            // Smooth easeInOut sine
-            const ease = -(Math.cos(Math.PI * t) - 1) / 2;
-
-            setAnimatingPacket({
-              x: fromPos.x + (toPos.x - fromPos.x) * ease,
-              y: fromPos.y + (toPos.y - fromPos.y) * ease,
-              status: 'in-flight',
-              fromNode,
-              toNode,
-              label: 'DATA',
-              hopIndex: i + 1,
-              totalHops: path.length - 1,
-            });
-
-            await new Promise((r) => setTimeout(r, 20));
-          }
-        }
-      }
-
-      if (animIdRef.current !== animId) return;
-
-      // Arrival at final node in path
-      const lastNode = path[path.length - 1];
-      const lastPos = positions[lastNode];
-
-      if (lastPos) {
-        setAnimatingPacket({
-          x: lastPos.x,
-          y: lastPos.y,
-          status: result.delivered ? 'delivered' : 'failed',
-          label: result.delivered ? 'ACK' : 'FAIL',
-          node: lastNode,
-        });
-
-        await new Promise((r) => setTimeout(r, 650));
-      }
-    } else if (path.length === 1) {
-      // Single node (e.g. source has no route to destination due to link severed)
-      const srcNode = path[0];
-      const srcPos = positions[srcNode];
-      if (srcPos) {
-        setAnimatingPacket({
-          x: srcPos.x,
-          y: srcPos.y,
-          status: 'failed',
-          label: 'BLOCKED',
-          node: srcNode,
-        });
-        await new Promise((r) => setTimeout(r, 700));
-      }
-    }
+    // Hand the animation to the graph (rAF-driven, no per-frame React renders)
+    await new Promise((resolve) => {
+      setAnimatingPacket({
+        id: animId,
+        path: result.path_traversed || [],
+        delivered: !!result.delivered,
+        onDone: resolve,
+      });
+    });
 
     if (animIdRef.current === animId) {
       setAnimatingPacket(null);
@@ -393,7 +332,7 @@ export function App() {
                   selectedRouter={selectedRouter}
                   onSelectRouter={setSelectedRouter}
                   highlightPath={highlightPath}
-                  animatingPacket={animatingPacket}
+                  packetAnim={animatingPacket}
                   isFlooding={isFlooding}
                   onToggleLinkFail={handleToggleLinkFail}
                 />

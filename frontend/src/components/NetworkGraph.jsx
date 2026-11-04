@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   Zap, 
   AlertTriangle, 
@@ -14,7 +14,7 @@ export function NetworkGraph({
   selectedRouter,
   onSelectRouter,
   highlightPath = [],
-  animatingPacket = null,
+  packetAnim = null,
   isFlooding = false,
   onToggleLinkFail,
 }) {
@@ -39,11 +39,102 @@ export function NetworkGraph({
     return false;
   };
 
-  // Check if a link (u, v) is actively being traversed by animating packet
+  // Packet animation: driven by requestAnimationFrame, writing directly to the DOM
+  // (no React re-render per frame). React state only changes per hop / on arrival.
+  const packetRef = useRef(null);
+  const positionsRef = useRef(positions);
+  positionsRef.current = positions;
+  const [activeHop, setActiveHop] = useState(null); // { from, to }
+  const [packetVisual, setPacketVisual] = useState(null); // { x, y, status, label }
+
+  useEffect(() => {
+    if (!packetAnim) return undefined;
+    const { path, delivered, onDone } = packetAnim;
+    const pos = positionsRef.current;
+    const HOP_MS = 650;
+    const HOLD_MS = 700;
+    let raf = 0;
+    let cancelled = false;
+    let finished = false;
+
+    const setXY = (x, y) => {
+      if (packetRef.current) packetRef.current.setAttribute('transform', `translate(${x}, ${y})`);
+    };
+    // Cleanup (superseded / StrictMode remount) never calls onDone; only a real finish does.
+    const finish = (completed) => {
+      if (finished) return;
+      finished = true;
+      setActiveHop(null);
+      setPacketVisual(null);
+      if (completed && onDone) onDone(true);
+    };
+
+    const pts = (path || []).filter((id) => pos[id]);
+    if (pts.length === 0) {
+      finish(true);
+      return undefined;
+    }
+
+    // Single node: blocked at source
+    if (pts.length === 1) {
+      const p = pos[pts[0]];
+      setPacketVisual({ x: p.x, y: p.y, status: 'failed', label: 'BLOCKED' });
+      const t = setTimeout(() => finish(true), HOLD_MS);
+      return () => { cancelled = true; clearTimeout(t); finish(false); };
+    }
+
+    const startPos = pos[pts[0]];
+    setPacketVisual({ x: startPos.x, y: startPos.y, status: 'in-flight', label: 'DATA' });
+    setActiveHop({ from: pts[0], to: pts[1] });
+
+    let hop = 0;
+    let hopStart = null;
+    let holdTimer = null;
+
+    const tick = (now) => {
+      if (cancelled) return;
+      if (hopStart === null) hopStart = now;
+      const t = Math.min((now - hopStart) / HOP_MS, 1);
+      const ease = -(Math.cos(Math.PI * t) - 1) / 2;
+      const a = pos[pts[hop]];
+      const b = pos[pts[hop + 1]];
+      setXY(a.x + (b.x - a.x) * ease, a.y + (b.y - a.y) * ease);
+
+      if (t < 1) {
+        raf = requestAnimationFrame(tick);
+        return;
+      }
+      hop += 1;
+      hopStart = null;
+      if (hop < pts.length - 1) {
+        setActiveHop({ from: pts[hop], to: pts[hop + 1] });
+        raf = requestAnimationFrame(tick);
+      } else {
+        const end = pos[pts[pts.length - 1]];
+        setActiveHop(null);
+        setPacketVisual({
+          x: end.x,
+          y: end.y,
+          status: delivered ? 'delivered' : 'failed',
+          label: delivered ? 'ACK' : 'FAIL',
+        });
+        holdTimer = setTimeout(() => finish(true), HOLD_MS);
+      }
+    };
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      clearTimeout(holdTimer);
+      finish(false);
+    };
+  }, [packetAnim]);
+
+  // Check if a link (u, v) is the hop the packet is currently traversing
   const isLinkActiveHop = (u, v) => {
-    if (!animatingPacket || !animatingPacket.fromNode || !animatingPacket.toNode) return false;
-    const { fromNode, toNode } = animatingPacket;
-    return (fromNode === u && toNode === v) || (fromNode === v && toNode === u);
+    if (!activeHop) return false;
+    return (activeHop.from === u && activeHop.to === v) || (activeHop.from === v && activeHop.to === u);
   };
 
   // Node color palette based on router ID hash
@@ -93,23 +184,18 @@ export function NetworkGraph({
         <svg className="network-svg" viewBox="0 0 840 480" preserveAspectRatio="xMidYMid meet">
           <defs>
             {/* Gradients */}
-            <linearGradient id="pathGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#10b981" />
-              <stop offset="50%" stopColor="#06b6d4" />
-              <stop offset="100%" stopColor="#3b82f6" />
-            </linearGradient>
 
-            <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+            <filter id="glow" filterUnits="userSpaceOnUse" x="-100" y="-100" width="1040" height="680">
               <feGaussianBlur stdDeviation="6" result="blur" />
               <feComposite in="SourceGraphic" in2="blur" operator="over" />
             </filter>
 
-            <filter id="pathGlow" x="-30%" y="-30%" width="160%" height="160%">
+            <filter id="pathGlow" filterUnits="userSpaceOnUse" x="-100" y="-100" width="1040" height="680">
               <feGaussianBlur stdDeviation="8" result="blur" />
               <feComposite in="SourceGraphic" in2="blur" operator="over" />
             </filter>
 
-            <filter id="failedGlow" x="-30%" y="-30%" width="160%" height="160%">
+            <filter id="failedGlow" filterUnits="userSpaceOnUse" x="-100" y="-100" width="1040" height="680">
               <feGaussianBlur stdDeviation="5" result="blur" />
               <feComposite in="SourceGraphic" in2="blur" operator="over" />
             </filter>
@@ -173,10 +259,10 @@ export function NetworkGraph({
                     y1={uPos.y}
                     x2={vPos.x}
                     y2={vPos.y}
-                    className={`link-line ${isActiveHop ? 'active-hop-line' : isInPath ? 'path-active' : ''} ${isFailed ? 'severed-line' : ''}`}
-                    stroke={isActiveHop ? '#38bdf8' : isInPath ? 'url(#pathGradient)' : isFailed ? '#ef4444' : '#475569'}
+                    className={`link-line ${isInPath ? 'path-active' : ''} ${isFailed ? 'severed-line' : ''}`}
+                    stroke={isActiveHop ? '#38bdf8' : isInPath ? '#10b981' : isFailed ? '#ef4444' : '#475569'}
                     strokeWidth={isActiveHop ? 5 : isInPath ? 4.5 : isFailed ? 2.5 : 2.5}
-                    strokeDasharray={isFailed ? '6,6' : isActiveHop ? '4,4' : isInPath ? '8,4' : 'none'}
+                    strokeDasharray={isFailed ? '6,6' : isInPath ? '8,4' : undefined}
                   />
 
                   {/* Midpoint Metric Badge - Static, Clean, No Hover Glitch */}
@@ -209,29 +295,27 @@ export function NetworkGraph({
             })}
           </g>
 
-          {/* Animated Data Packet Traveling */}
-          {animatingPacket && typeof animatingPacket.x === 'number' && typeof animatingPacket.y === 'number' && !isNaN(animatingPacket.x) && !isNaN(animatingPacket.y) && (
-            <g className="packet-anim-group" transform={`translate(${animatingPacket.x}, ${animatingPacket.y})`}>
-              {/* Outer pulsing beacon aura */}
+          {/* Animated Data Packet Traveling (position updated via ref in rAF loop) */}
+          {packetVisual && (
+            <g
+              ref={packetRef}
+              className="packet-anim-group"
+              transform={`translate(${packetVisual.x}, ${packetVisual.y})`}
+              pointerEvents="none"
+            >
               <circle
                 r="18"
-                fill={animatingPacket.status === 'failed' ? '#ef4444' : animatingPacket.status === 'delivered' ? '#10b981' : '#38bdf8'}
-                opacity="0.35"
-                filter="url(#glow)"
-              >
-                <animate attributeName="r" values="14;26;14" dur="0.9s" repeatCount="indefinite" />
-              </circle>
-              {/* Core glow */}
+                fill={packetVisual.status === 'failed' ? '#ef4444' : packetVisual.status === 'delivered' ? '#10b981' : '#38bdf8'}
+                opacity="0.3"
+              />
               <circle
                 r="11"
-                fill={animatingPacket.status === 'failed' ? '#f43f5e' : animatingPacket.status === 'delivered' ? '#059669' : '#0284c7'}
+                fill={packetVisual.status === 'failed' ? '#f43f5e' : packetVisual.status === 'delivered' ? '#059669' : '#0284c7'}
                 stroke="#ffffff"
                 strokeWidth="2.5"
-                filter="url(#glow)"
               />
-              {/* Label text */}
-              <text x="0" y="3.5" textAnchor="middle" fill="#ffffff" fontSize="7" fontWeight="800" pointerEvents="none">
-                {animatingPacket.label || (animatingPacket.status === 'failed' ? 'FAIL' : animatingPacket.status === 'delivered' ? 'ACK' : 'DATA')}
+              <text x="0" y="3" textAnchor="middle" fill="#ffffff" fontSize="7" fontWeight="800">
+                {packetVisual.label}
               </text>
             </g>
           )}
